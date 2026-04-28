@@ -89,15 +89,43 @@ def parse_api_response(api_resp):
     """Parse holdings from intercepted API response."""
     results = {"holdings": [], "meta": {}}
 
-    entries = api_resp.get("Entries", [])
-    for entry in entries:
-        if entry.get("AssetType") == "Stock":
-            results["holdings"].append({
-                "name": entry.get("Name", ""),
-                "code": entry.get("Code", ""),
-                "weight": float(entry.get("Weight", 0)),
-            })
+    # Debug: print structure
+    print(f"API response type: {type(api_resp)}")
+    if isinstance(api_resp, dict):
+        print(f"API keys: {list(api_resp.keys())[:10]}")
+        entries = api_resp.get("Entries", [])
+        if entries and isinstance(entries, list):
+            print(f"First entry type: {type(entries[0])}")
+            if isinstance(entries[0], dict):
+                print(f"First entry keys: {list(entries[0].keys())}")
+                print(f"First entry sample: {entries[0]}")
 
+        # Parse based on actual structure
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+
+            # Try different field names
+            asset_type = entry.get("AssetType") or entry.get("assetType") or entry.get("Type", "")
+            name = entry.get("Name") or entry.get("name") or entry.get("StockName", "")
+            code = entry.get("Code") or entry.get("code") or entry.get("StockCode", "")
+            weight = entry.get("Weight") or entry.get("weight") or entry.get("NavRate", 0)
+
+            # Include stocks (not cash/futures header rows)
+            if name and weight:
+                try:
+                    w = float(str(weight).replace("%", ""))
+                    if 0 < w < 100:
+                        results["holdings"].append({
+                            "name": str(name),
+                            "code": str(code) if code else "",
+                            "weight": w,
+                        })
+                except (ValueError, TypeError):
+                    pass
+
+    # Sort by weight
+    results["holdings"].sort(key=lambda x: x["weight"], reverse=True)
     return results
 
 
