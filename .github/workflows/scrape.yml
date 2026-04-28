@@ -1,0 +1,39 @@
+name: Scrape ETF Holdings
+
+on:
+  schedule:
+    # Run at 19:30 Taiwan time (11:30 UTC) on weekdays
+    - cron: '30 11 * * 1-5'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install playwright
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Run scraper
+        run: python scrape_allianz.py
+
+      - name: Commit and push if changed
+        env:
+          COMMIT_DATE: ${{ github.run_id }}
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add data/
+          TODAY=$(date +%Y-%m-%d)
+          git diff --staged --quiet || git commit -m "Update 00993A holdings ${TODAY}"
+          git push
