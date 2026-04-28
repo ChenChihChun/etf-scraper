@@ -85,25 +85,38 @@ def scrape_holdings():
 
                         const cellTexts = cells.map(c => c.innerText.trim());
 
-                        // Extract code (4-6 digits)
+                        // Extract code (4-6 digits, or futures code like 202605TX)
                         let code = '';
                         for (const txt of cellTexts) {
-                            if (/^\\d{4,6}$/.test(txt)) {
+                            if (/^\\d{4,6}$/.test(txt) || /^\\d{6}[A-Z]{2}$/.test(txt)) {
                                 code = txt;
                                 break;
                             }
                         }
 
-                        // Extract weight (decimal with optional %)
+                        // Extract weight (decimal with %)
                         let weight = 0;
                         for (const txt of cellTexts) {
-                            const match = txt.match(/([\\d.]+)\\s*%?/);
-                            if (match) {
-                                const val = parseFloat(match[1]);
-                                // Weight should be between 0 and 100, and have decimal
-                                if (val > 0 && val < 100 && txt.includes('.')) {
-                                    weight = val;
+                            if (txt.includes('%')) {
+                                const match = txt.match(/([\\d.]+)\\s*%/);
+                                if (match) {
+                                    weight = parseFloat(match[1]);
                                     break;
+                                }
+                            }
+                        }
+
+                        // Extract shares (large number, possibly with commas)
+                        let shares = 0;
+                        for (const txt of cellTexts) {
+                            // Look for numbers like "7,318,000" or "469,000"
+                            const cleanNum = txt.replace(/,/g, '');
+                            if (/^\\d+$/.test(cleanNum)) {
+                                const val = parseInt(cleanNum);
+                                // Shares are typically large numbers (> 1000 for stocks)
+                                // but could be small for futures (口)
+                                if (val >= 1) {
+                                    shares = val;
                                 }
                             }
                         }
@@ -112,7 +125,8 @@ def scrape_holdings():
                         let name = '';
                         for (const txt of cellTexts) {
                             if (txt === code) continue;
-                            if (/^[\\d.%]+$/.test(txt)) continue;
+                            if (/^[\\d.%,]+$/.test(txt)) continue;
+                            if (txt === '股' || txt === '口') continue;
                             if (txt.length >= 2 && txt.length <= 20 && /[\\u4e00-\\u9fff]/.test(txt)) {
                                 name = txt;
                                 break;
@@ -120,7 +134,7 @@ def scrape_holdings():
                         }
 
                         if ((name || code) && weight > 0) {
-                            results.holdings.push({ name, code, weight });
+                            results.holdings.push({ name, code, weight, shares });
                         }
                     }
                 }
