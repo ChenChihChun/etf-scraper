@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+from playwright.sync_api import sync_playwright
 
 
 ETF_URL = "https://etf.allianzgi.com.tw/etf-info/E0001"
@@ -29,181 +29,199 @@ def scrape_holdings():
         )
         page = context.new_page()
 
+        # Intercept API responses
+        api_data = {}
+
+        def handle_response(response):
+            if "GetFundAssets" in response.url:
+                try:
+                    api_data["assets"] = response.json()
+                    print(f"Captured API response: {len(str(api_data['assets']))} bytes")
+                except:
+                    pass
+
+        page.on("response", handle_response)
+
         print(f"Loading {ETF_URL}...")
         page.goto(ETF_URL, timeout=60000)
-
-        # Wait for Angular app to load
-        print("Waiting for page to load...")
         page.wait_for_load_state("networkidle", timeout=30000)
-        time.sleep(3)  # Extra wait for Angular rendering
+        time.sleep(2)
 
-        # Click on "資產配置" tab (tab index 4)
+        # Click on 資產配置 tab
         print("Looking for 資產配置 tab...")
         try:
-            # Try multiple selectors for the tab
             tab_selectors = [
                 "text=資產配置",
                 "[role='tab']:has-text('資產配置')",
-                ".nav-link:has-text('資產配置')",
                 "a:has-text('資產配置')",
                 "button:has-text('資產配置')",
             ]
-
-            tab_clicked = False
             for selector in tab_selectors:
                 try:
                     tab = page.locator(selector).first
                     if tab.is_visible(timeout=2000):
                         tab.click()
-                        tab_clicked = True
-                        print(f"Clicked tab using: {selector}")
+                        print(f"Clicked tab: {selector}")
+                        time.sleep(3)
                         break
                 except:
                     continue
-
-            if not tab_clicked:
-                print("Could not find tab, trying direct URL...")
-                page.goto(f"{ETF_URL}?tab=4", timeout=30000)
-                page.wait_for_load_state("networkidle", timeout=30000)
-
         except Exception as e:
-            print(f"Tab click warning: {e}")
+            print(f"Tab warning: {e}")
 
-        # Wait for content to load
-        time.sleep(3)
-
-        # Take screenshot for debugging
+        # Take screenshot
         page.screenshot(path=str(OUTPUT_DIR / "debug_screenshot.png"))
-        print("Saved debug screenshot")
 
-        # Get page content for analysis
-        page_text = page.inner_text("body")
-        print(f"Page text length: {len(page_text)}")
-
-        # Extract holdings data
-        holdings_data = page.evaluate("""
-            () => {
-                const results = {
-                    holdings: [],
-                    meta: {},
-                    debug: {
-                        tables: 0,
-                        pageTitle: document.title,
-                        bodyLength: document.body.innerText.length
-                    }
-                };
-
-                // Find all tables
-                const tables = document.querySelectorAll('table');
-                results.debug.tables = tables.length;
-
-                // Look for holdings data in various formats
-                for (const table of tables) {
-                    const tableText = table.innerText.toLowerCase();
-
-                    // Check if this table has stock-related content
-                    if (tableText.includes('台積電') || tableText.includes('tsmc') ||
-                        tableText.includes('2330') || tableText.includes('股票') ||
-                        tableText.includes('比重') || tableText.includes('%')) {
-
-                        const rows = table.querySelectorAll('tr');
-                        rows.forEach((row, idx) => {
-                            const cells = row.querySelectorAll('td, th');
-                            if (cells.length >= 2) {
-                                // Try to extract stock info
-                                const rowText = Array.from(cells).map(c => c.innerText.trim());
-
-                                // Look for patterns like "股票名稱 | 代碼 | 比重%"
-                                let name = '';
-                                let code = '';
-                                let weight = 0;
-
-                                for (let i = 0; i < rowText.length; i++) {
-                                    const cell = rowText[i];
-
-                                    // Check for stock code (4 digits)
-                                    if (/^\\d{4}$/.test(cell)) {
-                                        code = cell;
-                                    }
-                                    // Check for weight (number with %)
-                                    else if (/%/.test(cell) || /^\\d+\\.\\d+$/.test(cell)) {
-                                        weight = parseFloat(cell.replace('%', ''));
-                                    }
-                                    // Otherwise might be name
-                                    else if (cell.length > 1 && !cell.includes('股票') &&
-                                             !cell.includes('名稱') && !cell.includes('比重')) {
-                                        if (!name) name = cell;
-                                    }
-                                }
-
-                                if ((name || code) && weight > 0) {
-                                    results.holdings.push({ name, code, weight });
-                                }
-                            }
-                        });
-                    }
-                }
-
-                // Also try to find JSON data in scripts
-                const scripts = document.querySelectorAll('script');
-                scripts.forEach(script => {
-                    const text = script.innerText;
-                    if (text.includes('holdings') || text.includes('assets')) {
-                        try {
-                            // Look for JSON arrays
-                            const matches = text.match(/\\[\\{[^\\[\\]]+\\}\\]/g);
-                            if (matches) {
-                                matches.forEach(m => {
-                                    try {
-                                        const data = JSON.parse(m);
-                                        if (Array.isArray(data) && data.length > 0 && data[0].weight) {
-                                            results.holdings = results.holdings.concat(data);
-                                        }
-                                    } catch {}
-                                });
-                            }
-                        } catch {}
-                    }
-                });
-
-                // Get date from page
-                const dateMatch = document.body.innerText.match(/(\\d{4})[\\/-](\\d{2})[\\/-](\\d{2})/);
-                if (dateMatch) {
-                    results.meta.trade_date = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
-                }
-
-                // Try to find NAV
-                const navMatch = document.body.innerText.match(/淨值[：:]*\\s*([\\d.]+)/);
-                if (navMatch) {
-                    results.meta.nav = parseFloat(navMatch[1]);
-                }
-
-                // Deduplicate holdings
-                const seen = new Set();
-                results.holdings = results.holdings.filter(h => {
-                    const key = h.code || h.name;
-                    if (seen.has(key)) return false;
-                    seen.add(key);
-                    return true;
-                });
-
-                return results;
-            }
-        """)
-
-        print(f"Debug info: {holdings_data.get('debug', {})}")
-        print(f"Found {len(holdings_data.get('holdings', []))} holdings")
-
-        # If no holdings found, save page source for debugging
-        if not holdings_data.get("holdings"):
-            html_path = OUTPUT_DIR / "debug_page.html"
-            with open(html_path, "w", encoding="utf-8") as f:
-                f.write(page.content())
-            print(f"Saved page HTML to {html_path}")
+        # Try to get data from intercepted API first
+        if api_data.get("assets"):
+            print("Using intercepted API data")
+            holdings_data = parse_api_response(api_data["assets"])
+        else:
+            print("Parsing from page content")
+            holdings_data = parse_page_content(page)
 
         browser.close()
 
     return holdings_data
+
+
+def parse_api_response(api_resp):
+    """Parse holdings from intercepted API response."""
+    results = {"holdings": [], "meta": {}}
+
+    entries = api_resp.get("Entries", [])
+    for entry in entries:
+        if entry.get("AssetType") == "Stock":
+            results["holdings"].append({
+                "name": entry.get("Name", ""),
+                "code": entry.get("Code", ""),
+                "weight": float(entry.get("Weight", 0)),
+            })
+
+    return results
+
+
+def parse_page_content(page):
+    """Parse holdings from page HTML."""
+    results = page.evaluate("""
+        () => {
+            const results = {
+                holdings: [],
+                meta: {},
+                debug: { tables: 0 }
+            };
+
+            const tables = document.querySelectorAll('table');
+            results.debug.tables = tables.length;
+
+            for (const table of tables) {
+                const rows = Array.from(table.querySelectorAll('tr'));
+                if (rows.length < 2) continue;
+
+                // Find header row to determine column order
+                const headerRow = rows[0];
+                const headers = Array.from(headerRow.querySelectorAll('th, td'))
+                    .map(c => c.innerText.trim().toLowerCase());
+
+                // Look for stock holdings table
+                const hasName = headers.some(h => h.includes('名稱') || h.includes('股票'));
+                const hasCode = headers.some(h => h.includes('代碼') || h.includes('代號'));
+                const hasWeight = headers.some(h => h.includes('比重') || h.includes('權重') || h.includes('%'));
+
+                if (!hasWeight) continue;
+
+                // Determine column indices
+                let nameIdx = headers.findIndex(h => h.includes('名稱') || h.includes('股票'));
+                let codeIdx = headers.findIndex(h => h.includes('代碼') || h.includes('代號'));
+                let weightIdx = headers.findIndex(h => h.includes('比重') || h.includes('權重') || h.includes('%'));
+
+                // If no explicit columns, try positional detection
+                if (nameIdx === -1) nameIdx = 0;
+                if (weightIdx === -1) weightIdx = headers.length - 1;
+
+                // Parse data rows
+                for (let i = 1; i < rows.length; i++) {
+                    const cells = Array.from(rows[i].querySelectorAll('td'));
+                    if (cells.length < 2) continue;
+
+                    const cellTexts = cells.map(c => c.innerText.trim());
+
+                    // Extract weight (look for number, possibly with %)
+                    let weight = 0;
+                    for (const txt of cellTexts) {
+                        const match = txt.match(/([\\d.]+)\\s*%?$/);
+                        if (match && parseFloat(match[1]) > 0 && parseFloat(match[1]) < 100) {
+                            weight = parseFloat(match[1]);
+                            break;
+                        }
+                    }
+                    if (weight === 0) continue;
+
+                    // Extract code (4 digits)
+                    let code = '';
+                    for (const txt of cellTexts) {
+                        if (/^\\d{4}$/.test(txt)) {
+                            code = txt;
+                            break;
+                        }
+                    }
+
+                    // Extract name (non-numeric, non-% text)
+                    let name = '';
+                    for (const txt of cellTexts) {
+                        // Skip if it's the code, weight, or header-like text
+                        if (txt === code) continue;
+                        if (/^[\\d.]+%?$/.test(txt)) continue;
+                        if (txt.includes('名稱') || txt.includes('代碼') || txt.includes('比重')) continue;
+                        if (txt.length > 0 && txt.length < 20) {
+                            name = txt;
+                            break;
+                        }
+                    }
+
+                    // Special case: futures (TX, MTX, etc.)
+                    if (!code && name.match(/^[A-Z]{2,4}$/)) {
+                        // It's likely a futures symbol, keep name as-is
+                    }
+
+                    if (name || code) {
+                        results.holdings.push({ name, code, weight });
+                    }
+                }
+            }
+
+            // Get date
+            const dateMatch = document.body.innerText.match(/(\\d{4})[\\/-](\\d{2})[\\/-](\\d{2})/);
+            if (dateMatch) {
+                results.meta.trade_date = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
+            }
+
+            // Get NAV
+            const navMatch = document.body.innerText.match(/淨值[：:]?\\s*([\\d.]+)/);
+            if (navMatch) {
+                results.meta.nav = parseFloat(navMatch[1]);
+            }
+
+            // Deduplicate
+            const seen = new Set();
+            results.holdings = results.holdings.filter(h => {
+                const key = h.code || h.name;
+                if (!key || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+
+            // Sort by weight desc
+            results.holdings.sort((a, b) => b.weight - a.weight);
+
+            return results;
+        }
+    """)
+
+    print(f"Debug: {results.get('debug', {})}")
+    print(f"Found {len(results.get('holdings', []))} holdings")
+
+    return results
 
 
 def save_data(data):
@@ -220,37 +238,38 @@ def save_data(data):
         "holdings_count": len(data.get("holdings", []))
     }
 
-    # Save to dated file
-    filename = f"00993A_{today}.json"
-    filepath = OUTPUT_DIR / filename
+    # Save dated file
+    filepath = OUTPUT_DIR / f"00993A_{today}.json"
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
-    print(f"Saved to {filepath}")
+    print(f"Saved: {filepath}")
 
-    # Also save as latest
-    latest_path = OUTPUT_DIR / "00993A_latest.json"
-    with open(latest_path, "w", encoding="utf-8") as f:
+    # Save latest
+    latest = OUTPUT_DIR / "00993A_latest.json"
+    with open(latest, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
-    print(f"Saved to {latest_path}")
+    print(f"Saved: {latest}")
 
     return output
 
 
 def main():
-    print(f"Scraping 00993A holdings at {datetime.now().isoformat()}")
+    print(f"Scraping 00993A at {datetime.now().isoformat()}")
 
     try:
         data = scrape_holdings()
 
         if not data.get("holdings"):
-            print("WARNING: No holdings data found!")
-            print("Check debug_screenshot.png and debug_page.html for details")
-            # Save empty result for debugging
+            print("WARNING: No holdings found!")
             save_data(data)
             sys.exit(1)
 
         result = save_data(data)
-        print(f"Successfully scraped {result['holdings_count']} holdings")
+        print(f"Success: {result['holdings_count']} holdings")
+
+        # Print holdings
+        for h in result["holdings"][:10]:
+            print(f"  {h['code'] or '----':>4} {h['name']:<12} {h['weight']:.2f}%")
 
     except Exception as e:
         print(f"ERROR: {e}")
