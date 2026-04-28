@@ -203,13 +203,27 @@ def parse_page_content(page):
 
                     const cellTexts = cells.map(c => c.innerText.trim());
 
-                    // Extract weight (look for number, possibly with %)
+                    // Extract weight (look for decimal number with %, not integer rank)
                     let weight = 0;
                     for (const txt of cellTexts) {
-                        const match = txt.match(/([\\d.]+)\\s*%?$/);
-                        if (match && parseFloat(match[1]) > 0 && parseFloat(match[1]) < 100) {
-                            weight = parseFloat(match[1]);
-                            break;
+                        // Must have decimal point OR % sign to be a weight
+                        // Pure integers (1, 2, 3...) are likely ranks
+                        const match = txt.match(/([\\d]+\\.\\d+)\\s*%?$/);
+                        if (match) {
+                            const val = parseFloat(match[1]);
+                            if (val > 0 && val < 100) {
+                                weight = val;
+                                break;
+                            }
+                        }
+                        // Also try "X.XX%" format
+                        const pctMatch = txt.match(/([\\d.]+)%/);
+                        if (pctMatch) {
+                            const val = parseFloat(pctMatch[1]);
+                            if (val > 0 && val < 100) {
+                                weight = val;
+                                break;
+                            }
                         }
                     }
                     if (weight === 0) continue;
