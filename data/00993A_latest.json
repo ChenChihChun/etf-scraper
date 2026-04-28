@@ -2,63 +2,63 @@
   "etf_code": "00993A",
   "etf_name": "安聯台灣主動式ETF",
   "trade_date": "2026-04-28",
-  "scraped_at": "2026-04-28T13:04:35.355436",
+  "scraped_at": "2026-04-28T13:06:51.357341",
   "nav": 14.06,
   "holdings": [
     {
-      "name": "台新新光金",
-      "code": "2887",
-      "weight": 10
-    },
-    {
-      "name": "欣興",
-      "code": "3037",
-      "weight": 9
-    },
-    {
-      "name": "台灣大",
-      "code": "3045",
-      "weight": 8
-    },
-    {
-      "name": "中信金",
-      "code": "2891",
-      "weight": 7
-    },
-    {
-      "name": "元大金",
-      "code": "2885",
-      "weight": 6
-    },
-    {
-      "name": "國泰金",
-      "code": "2882",
-      "weight": 5
-    },
-    {
-      "name": "富邦金控",
-      "code": "2881",
-      "weight": 4
-    },
-    {
-      "name": "聯電",
-      "code": "2303",
-      "weight": 3
+      "name": "台積電",
+      "code": "2330",
+      "weight": 4.98
     },
     {
       "name": "廣達",
       "code": "2382",
-      "weight": 2
+      "weight": 4.59
     },
     {
-      "name": "台積電",
-      "code": "2330",
-      "weight": 1
+      "name": "聯電",
+      "code": "2303",
+      "weight": 3.58
     },
     {
       "name": "TX",
       "code": "",
-      "weight": 1
+      "weight": 3.3
+    },
+    {
+      "name": "富邦金控",
+      "code": "2881",
+      "weight": 3.16
+    },
+    {
+      "name": "國泰金",
+      "code": "2882",
+      "weight": 2.9
+    },
+    {
+      "name": "元大金",
+      "code": "2885",
+      "weight": 2.9
+    },
+    {
+      "name": "中信金",
+      "code": "2891",
+      "weight": 2.74
+    },
+    {
+      "name": "台灣大",
+      "code": "3045",
+      "weight": 2.72
+    },
+    {
+      "name": "欣興",
+      "code": "3037",
+      "weight": 2.26
+    },
+    {
+      "name": "台新新光金",
+      "code": "2887",
+      "weight": 2.24
     }
   ],
   "holdings_count": 11
