@@ -49,25 +49,38 @@ def scrape_holdings():
 
         # Click on 資產配置 tab
         print("Looking for 資產配置 tab...")
+        tab_clicked = False
         try:
+            # Wait for any tab to be visible
+            page.wait_for_selector("text=資產配置", timeout=10000)
+
             tab_selectors = [
                 "text=資產配置",
-                "[role='tab']:has-text('資產配置')",
+                "li:has-text('資產配置')",
                 "a:has-text('資產配置')",
                 "button:has-text('資產配置')",
+                "[role='tab']:has-text('資產配置')",
             ]
             for selector in tab_selectors:
                 try:
                     tab = page.locator(selector).first
                     if tab.is_visible(timeout=2000):
                         tab.click()
+                        tab_clicked = True
                         print(f"Clicked tab: {selector}")
-                        time.sleep(3)
+                        time.sleep(5)  # Wait longer for content
                         break
-                except:
+                except Exception as e:
+                    print(f"  {selector}: {e}")
                     continue
         except Exception as e:
             print(f"Tab warning: {e}")
+
+        if not tab_clicked:
+            print("Tab not found, navigating directly to tab=4")
+            page.goto(f"{ETF_URL}?tab=4", timeout=30000)
+            page.wait_for_load_state("networkidle", timeout=30000)
+            time.sleep(5)
 
         # Take screenshot
         page.screenshot(path=str(OUTPUT_DIR / "debug_screenshot.png"))
@@ -97,29 +110,37 @@ def parse_api_response(api_resp):
     if isinstance(api_resp, dict):
         print(f"API keys: {list(api_resp.keys())[:10]}")
         print(f"StatusCode: {api_resp.get('StatusCode')}, TotalItems: {api_resp.get('TotalItems')}")
-        entries = api_resp.get("Entries", [])
-        print(f"Entries type: {type(entries)}, length: {len(entries) if isinstance(entries, list) else 'N/A'}")
-        if entries:
-            if isinstance(entries, list) and len(entries) > 0:
-                print(f"First entry type: {type(entries[0])}")
-                if isinstance(entries[0], dict):
-                    print(f"First entry keys: {list(entries[0].keys())}")
-                    print(f"First entry: {entries[0]}")
-            elif isinstance(entries, dict):
-                print(f"Entries is dict with keys: {list(entries.keys())[:10]}")
 
-        # Parse based on actual structure
+        entries = api_resp.get("Entries", {})
+
+        # Handle nested structure: Entries might be dict with Data key
+        if isinstance(entries, dict):
+            print(f"Entries is dict with keys: {list(entries.keys())[:10]}")
+            # Try Entries.Data
+            data_list = entries.get("Data", [])
+            if isinstance(data_list, list):
+                entries = data_list
+                print(f"Found Data list with {len(entries)} items")
+            else:
+                entries = []
+
+        print(f"Entries count: {len(entries)}")
+        if entries and len(entries) > 0:
+            print(f"First entry: {entries[0]}")
+
+        # Parse entries
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
 
-            # Try different field names
-            asset_type = entry.get("AssetType") or entry.get("assetType") or entry.get("Type", "")
-            name = entry.get("Name") or entry.get("name") or entry.get("StockName", "")
-            code = entry.get("Code") or entry.get("code") or entry.get("StockCode", "")
-            weight = entry.get("Weight") or entry.get("weight") or entry.get("NavRate", 0)
+            # Try different field names (安聯 API uses Chinese or English)
+            name = (entry.get("Name") or entry.get("name") or
+                    entry.get("StockName") or entry.get("股票名稱") or "")
+            code = (entry.get("Code") or entry.get("code") or
+                    entry.get("StockCode") or entry.get("股票代碼") or "")
+            weight = (entry.get("Weight") or entry.get("weight") or
+                      entry.get("NavRate") or entry.get("比重") or 0)
 
-            # Include stocks (not cash/futures header rows)
             if name and weight:
                 try:
                     w = float(str(weight).replace("%", ""))
