@@ -73,11 +73,14 @@ def scrape_holdings():
         page.screenshot(path=str(OUTPUT_DIR / "debug_screenshot.png"))
 
         # Try to get data from intercepted API first
+        holdings_data = None
         if api_data.get("assets"):
             print("Using intercepted API data")
             holdings_data = parse_api_response(api_data["assets"])
-        else:
-            print("Parsing from page content")
+
+        # Fallback to page parsing if API didn't work
+        if not holdings_data or not holdings_data.get("holdings"):
+            print("Fallback: Parsing from page content")
             holdings_data = parse_page_content(page)
 
         browser.close()
@@ -93,12 +96,17 @@ def parse_api_response(api_resp):
     print(f"API response type: {type(api_resp)}")
     if isinstance(api_resp, dict):
         print(f"API keys: {list(api_resp.keys())[:10]}")
+        print(f"StatusCode: {api_resp.get('StatusCode')}, TotalItems: {api_resp.get('TotalItems')}")
         entries = api_resp.get("Entries", [])
-        if entries and isinstance(entries, list):
-            print(f"First entry type: {type(entries[0])}")
-            if isinstance(entries[0], dict):
-                print(f"First entry keys: {list(entries[0].keys())}")
-                print(f"First entry sample: {entries[0]}")
+        print(f"Entries type: {type(entries)}, length: {len(entries) if isinstance(entries, list) else 'N/A'}")
+        if entries:
+            if isinstance(entries, list) and len(entries) > 0:
+                print(f"First entry type: {type(entries[0])}")
+                if isinstance(entries[0], dict):
+                    print(f"First entry keys: {list(entries[0].keys())}")
+                    print(f"First entry: {entries[0]}")
+            elif isinstance(entries, dict):
+                print(f"Entries is dict with keys: {list(entries.keys())[:10]}")
 
         # Parse based on actual structure
         for entry in entries:
